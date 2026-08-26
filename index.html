@@ -69,6 +69,7 @@
     transition:background .15s, color .15s;
   }
   nav.tiers button:hover{background:var(--orange-100);color:var(--orange-700);}
+  nav.tiers button.active{background:var(--orange-500);color:#fff;}
   .header-right{display:flex;align-items:center;gap:10px;}
   .search-box{
     display:flex;align-items:center;gap:6px;background:var(--cream);
@@ -119,11 +120,40 @@
   .legend-item{display:flex;align-items:center;gap:7px;font-size:12.5px;color:var(--ink-soft);font-weight:500;}
   .legend-dot{width:9px;height:9px;border-radius:3px;}
 
+  .tier-tabs{
+    display:flex;gap:6px;flex-wrap:wrap;margin-bottom:28px;padding:6px;
+    background:#fff;border:1px solid var(--line);border-radius:100px;
+  }
+  .tier-tabs button{
+    flex:1;min-width:100px;border:none;background:transparent;color:var(--ink-soft);
+    font-family:'Fredoka',sans-serif;font-weight:600;font-size:13.5px;padding:10px 14px;
+    border-radius:100px;cursor:pointer;transition:background .15s,color .15s;white-space:nowrap;
+  }
+  .tier-tabs button:hover{background:var(--orange-100);color:var(--orange-700);}
+  .tier-tabs button.active{background:var(--tab-color, var(--orange-500));color:#fff;}
+  @media (max-width:720px){
+    .tier-tabs{overflow-x:auto;border-radius:14px;}
+    .tier-tabs button{flex:none;}
+  }
+
   .tier-section{margin-bottom:44px;scroll-margin-top:90px;}
   .tier-head{display:flex;align-items:baseline;gap:12px;margin-bottom:16px;}
   .tier-head h2{font-size:22px;font-weight:600;margin:0;}
   .tier-count{font-size:12.5px;color:var(--ink-soft);font-weight:500;}
   .tier-rule{flex:1;height:1px;background:linear-gradient(90deg,var(--line),transparent);}
+
+  .pagination{
+    display:flex;align-items:center;justify-content:center;gap:6px;margin-top:28px;flex-wrap:wrap;
+  }
+  .pagination button{
+    min-width:34px;height:34px;padding:0 10px;border-radius:9px;border:1px solid var(--line);
+    background:#fff;color:var(--ink-soft);font-weight:600;font-size:13px;cursor:pointer;
+    font-family:'Inter',sans-serif;transition:background .15s,color .15s,border-color .15s;
+  }
+  .pagination button:hover:not(:disabled){background:var(--orange-100);color:var(--orange-700);border-color:var(--orange-200);}
+  .pagination button.active{background:var(--orange-500);color:#fff;border-color:var(--orange-500);}
+  .pagination button:disabled{opacity:.4;cursor:default;}
+  .pagination .dots{color:var(--ink-soft);font-size:13px;padding:0 4px;}
 
   .pet-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:14px;}
 
@@ -367,6 +397,9 @@ let pets = [];
 let isAdmin = false;
 let editingId = null;
 let searchTerm = "";
+let currentTierId = TIERS[0].id;
+let currentPage = 1;
+const PAGE_SIZE = 8;
 
 /* ======================= SUPABASE INIT ======================= */
 function initSupabase(){
@@ -425,7 +458,7 @@ function fmtValue(n){
 
 function renderNav(){
   const nav = document.getElementById("tierNav");
-  nav.innerHTML = TIERS.map(t => `<button onclick="scrollToTier('${t.id}')">${t.label}</button>`).join("");
+  nav.innerHTML = TIERS.map(t => `<button class="${t.id===currentTierId?'active':''}" onclick="switchTier('${t.id}')">${t.label}</button>`).join("");
 }
 
 function renderLegend(){
@@ -437,9 +470,43 @@ function renderLegend(){
   `).join("");
 }
 
-function scrollToTier(id){
-  const el = document.getElementById("tier-"+id);
+function switchTier(id){
+  currentTierId = id;
+  currentPage = 1;
+  renderTiers();
+  renderNav();
+  const el = document.getElementById("tierSections");
   if(el) el.scrollIntoView({behavior:"smooth", block:"start"});
+}
+
+function goToPage(n){
+  currentPage = n;
+  renderTiers();
+  const el = document.getElementById("tierSections");
+  if(el) el.scrollIntoView({behavior:"smooth", block:"start"});
+}
+
+function paginationHtml(totalItems, page, pageSize){
+  const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
+  if(totalPages <= 1) return "";
+  const pageBtn = (n) => `<button class="${n===page?'active':''}" onclick="goToPage(${n})">${n}</button>`;
+  let nums = [];
+  const addDots = () => nums.push(`<span class="dots">…</span>`);
+  const range = new Set([1, totalPages, page, page-1, page+1].filter(n => n>=1 && n<=totalPages));
+  const sorted = [...range].sort((a,b)=>a-b);
+  let prev = null;
+  for(const n of sorted){
+    if(prev !== null && n - prev > 1) addDots();
+    nums.push(pageBtn(n));
+    prev = n;
+  }
+  return `
+    <div class="pagination">
+      <button ${page===1?"disabled":""} onclick="goToPage(${page-1})">‹ Prev</button>
+      ${nums.join("")}
+      <button ${page===totalPages?"disabled":""} onclick="goToPage(${page+1})">Next ›</button>
+    </div>
+  `;
 }
 
 function renderStats(){
@@ -480,19 +547,28 @@ function escapeHtml(s){
 function renderTiers(){
   const container = document.getElementById("tierSections");
   const term = searchTerm.trim().toLowerCase();
-  container.innerHTML = TIERS.map(t => {
-    const tierPets = pets.filter(p => p.tier === t.id && (!term || p.name.toLowerCase().includes(term)));
-    return `
-      <section class="tier-section" id="tier-${t.id}">
-        <div class="tier-head">
-          <h2 style="color:${t.color}">${t.label}</h2>
-          <span class="tier-count">${tierPets.length} pet${tierPets.length===1?"":"s"}</span>
-          <div class="tier-rule"></div>
-        </div>
-        ${tierPets.length ? `<div class="pet-grid">${tierPets.map(petCard).join("")}</div>` : `<div class="empty-tier">No pets in this tier yet${isAdmin ? " — add one below." : "."}</div>`}
-      </section>
-    `;
-  }).join("");
+  const t = TIERS.find(x => x.id === currentTierId) || TIERS[0];
+
+  const tierPets = pets.filter(p => p.tier === t.id && (!term || p.name.toLowerCase().includes(term)));
+  const totalPages = Math.max(1, Math.ceil(tierPets.length / PAGE_SIZE));
+  if(currentPage > totalPages) currentPage = totalPages;
+  const start = (currentPage - 1) * PAGE_SIZE;
+  const pagePets = tierPets.slice(start, start + PAGE_SIZE);
+
+  container.innerHTML = `
+    <div class="tier-tabs">
+      ${TIERS.map(tt => `<button class="${tt.id===currentTierId?'active':''}" style="--tab-color:${tt.color}" onclick="switchTier('${tt.id}')">${tt.label}</button>`).join("")}
+    </div>
+    <section class="tier-section" id="tier-${t.id}">
+      <div class="tier-head">
+        <h2 style="color:${t.color}">${t.label}</h2>
+        <span class="tier-count">${tierPets.length} pet${tierPets.length===1?"":"s"}</span>
+        <div class="tier-rule"></div>
+      </div>
+      ${pagePets.length ? `<div class="pet-grid">${pagePets.map(petCard).join("")}</div>` : `<div class="empty-tier">No pets in this tier yet${isAdmin ? " — add one below." : "."}</div>`}
+      ${paginationHtml(tierPets.length, currentPage, PAGE_SIZE)}
+    </section>
+  `;
   const fab = document.getElementById("floatingAdd");
   if(fab) fab.style.display = isAdmin ? "block" : "none";
 }
@@ -687,6 +763,7 @@ document.getElementById("adminBtn").addEventListener("click", () => {
 });
 document.getElementById("searchInput").addEventListener("input", e => {
   searchTerm = e.target.value;
+  currentPage = 1;
   renderTiers();
 });
 
