@@ -362,7 +362,7 @@ const TIERS = [
   {id:"titanic",   label:"Titanic",   color:"#3a1a00"},
 ];
 
-let supabase = null;
+let supabaseClient = null;
 let pets = [];
 let isAdmin = false;
 let editingId = null;
@@ -374,15 +374,15 @@ function initSupabase(){
                       SUPABASE_ANON_KEY && !SUPABASE_ANON_KEY.startsWith("YOUR_");
   document.getElementById("configBanner").classList.toggle("show", !configured);
   if(!configured) return false;
-  supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
   return true;
 }
 
 /* ======================= DATA ======================= */
 async function loadPets(){
-  if(!supabase) return;
+  if(!supabaseClient) return;
   try{
-    const { data, error } = await supabase.from("pets").select("*").order("value", {ascending:false});
+    const { data, error } = await supabaseClient.from("pets").select("*").order("value", {ascending:false});
     if(error){ console.error(error); showToast("Couldn't load pets"); return; }
     pets = data || [];
   }catch(e){
@@ -392,14 +392,14 @@ async function loadPets(){
 }
 
 async function addPet(p){
-  const { data, error } = await supabase.from("pets").insert([p]).select();
+  const { data, error } = await supabaseClient.from("pets").insert([p]).select();
   if(error){ console.error(error); showToast("Add failed: " + error.message); return false; }
   if(data && data[0]) pets.push(data[0]);
   return true;
 }
 
 async function updatePet(id, p){
-  const { data, error } = await supabase.from("pets").update(p).eq("id", id).select();
+  const { data, error } = await supabaseClient.from("pets").update(p).eq("id", id).select();
   if(error){ console.error(error); showToast("Update failed: " + error.message); return false; }
   if(data && data[0]){
     const idx = pets.findIndex(x => x.id === id);
@@ -409,7 +409,7 @@ async function updatePet(id, p){
 }
 
 async function removePet(id){
-  const { error } = await supabase.from("pets").delete().eq("id", id);
+  const { error } = await supabaseClient.from("pets").delete().eq("id", id);
   if(error){ console.error(error); showToast("Delete failed: " + error.message); return false; }
   pets = pets.filter(x => x.id !== id);
   return true;
@@ -531,12 +531,12 @@ function openLoginModal(){
 }
 
 async function attemptLogin(){
-  if(!supabase){ showToast("Supabase isn't configured yet"); return; }
+  if(!supabaseClient){ showToast("Supabase isn't configured yet"); return; }
   const email = document.getElementById("emailInput").value.trim();
   const password = document.getElementById("passInput").value;
   const btn = document.getElementById("loginSubmitBtn");
   btn.disabled = true; btn.textContent = "Logging in...";
-  const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+  const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
   btn.disabled = false; btn.textContent = "Log In";
   if(error || !data.session){
     document.getElementById("loginError").classList.add("show");
@@ -552,7 +552,7 @@ async function attemptLogin(){
 }
 
 async function exitAdmin(){
-  if(supabase) await supabase.auth.signOut();
+  if(supabaseClient) await supabaseClient.auth.signOut();
   isAdmin = false;
   document.body.classList.remove("admin-mode");
   document.getElementById("adminBtn").textContent = "Admin";
@@ -682,7 +682,7 @@ function ensureAddButton(){
 
 /* ======================= INIT ======================= */
 document.getElementById("adminBtn").addEventListener("click", () => {
-  if(!supabase){ showToast("Supabase isn't configured yet"); return; }
+  if(!supabaseClient){ showToast("Supabase isn't configured yet"); return; }
   if(isAdmin) exitAdmin(); else openLoginModal();
 });
 document.getElementById("searchInput").addEventListener("input", e => {
@@ -698,7 +698,7 @@ document.getElementById("searchInput").addEventListener("input", e => {
   if(!ok){ renderAll(); return; }
 
   // restore session if already logged in (e.g. page refresh)
-  const { data: { session } } = await supabase.auth.getSession();
+  const { data: { session } } = await supabaseClient.auth.getSession();
   if(session){
     isAdmin = true;
     document.body.classList.add("admin-mode");
@@ -710,7 +710,7 @@ document.getElementById("searchInput").addEventListener("input", e => {
   renderAll();
 
   // live updates so other visitors see admin edits without refreshing
-  supabase.channel("pets-changes")
+  supabaseClient.channel("pets-changes")
     .on("postgres_changes", { event: "*", schema: "public", table: "pets" }, async () => {
       await loadPets();
       renderAll();
