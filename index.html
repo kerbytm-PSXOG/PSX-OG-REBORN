@@ -169,8 +169,9 @@
   .pet-top{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:10px;position:relative;z-index:2;}
   .pet-icon{
     width:54px;height:54px;border-radius:12px;display:flex;align-items:center;justify-content:center;
-    font-size:26px;background:var(--orange-100);flex-shrink:0;
+    font-size:26px;background:var(--orange-100);flex-shrink:0;overflow:hidden;
   }
+  .pet-icon img{width:100%;height:100%;object-fit:cover;border-radius:12px;}
   .tier-badge{
     font-size:9.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;
     padding:3px 8px;border-radius:100px;color:#fff;white-space:nowrap;
@@ -184,6 +185,20 @@
   .demand-high{background:#ffe3d6;color:var(--orange-700);}
   .demand-med{background:#fff2df;color:#a86400;}
   .demand-low{background:#f2ede6;color:var(--ink-soft);}
+  .variants-toggle{
+    position:relative;z-index:2;width:100%;text-align:left;background:none;border:none;
+    padding:8px 0 0;margin-top:8px;border-top:1px dashed var(--line);font-size:11px;font-weight:600;
+    color:var(--orange-700);cursor:pointer;font-family:'Inter',sans-serif;
+  }
+  .variants-list{display:none;position:relative;z-index:2;margin-top:6px;}
+  .variants-list.open{display:block;}
+  .variant-row{
+    display:flex;align-items:center;justify-content:space-between;font-size:11.5px;
+    padding:4px 0;border-bottom:1px dotted var(--line);
+  }
+  .variant-row:last-child{border-bottom:none;}
+  .variant-row .vname{color:var(--ink);font-weight:500;}
+  .variant-row .vval{font-family:'JetBrains Mono',monospace;font-weight:600;color:var(--orange-700);}
   .admin-actions{display:none;gap:6px;margin-top:10px;position:relative;z-index:2;}
   body.admin-mode .admin-actions{display:flex;}
   .admin-actions button{
@@ -257,6 +272,41 @@
   .field textarea{resize:vertical;min-height:52px;}
   .modal-row{display:flex;gap:8px;}
   .modal-row .field{flex:1;}
+  .image-upload{
+    display:flex;align-items:center;gap:12px;margin-bottom:14px;
+  }
+  .image-preview{
+    width:56px;height:56px;border-radius:12px;background:var(--cream);border:1.5px dashed var(--line);
+    display:flex;align-items:center;justify-content:center;overflow:hidden;flex-shrink:0;font-size:22px;
+  }
+  .image-preview img{width:100%;height:100%;object-fit:cover;}
+  .image-upload-controls{flex:1;}
+  .image-upload-controls input[type=file]{
+    width:100%;font-size:11.5px;color:var(--ink-soft);
+  }
+  .image-upload-controls .clear-img{
+    font-size:11px;color:var(--orange-700);background:none;border:none;padding:4px 0 0;cursor:pointer;font-weight:600;
+  }
+  .variants-editor{margin-bottom:14px;}
+  .variants-editor > label{display:block;font-size:12px;font-weight:600;color:var(--ink-soft);margin-bottom:5px;}
+  #variantRows{display:flex;flex-direction:column;gap:6px;margin-bottom:8px;}
+  .variant-editor-row{display:flex;gap:6px;align-items:center;}
+  .variant-editor-row input{
+    padding:7px 9px;border:1.5px solid var(--line);border-radius:8px;font-size:12.5px;
+    font-family:'Inter',sans-serif;outline:none;background:var(--cream);color:var(--ink);
+  }
+  .variant-editor-row input:focus{border-color:var(--orange-500);background:#fff;}
+  .variant-editor-row .vr-name{flex:1.3;}
+  .variant-editor-row .vr-value{flex:1;}
+  .variant-editor-row .vr-remove{
+    border:none;background:none;color:var(--ink-soft);font-size:16px;cursor:pointer;padding:0 4px;line-height:1;
+  }
+  .variant-editor-row .vr-remove:hover{color:#b02a2a;}
+  .add-variant-btn{
+    width:100%;border:1.5px dashed var(--line);background:var(--cream);color:var(--ink-soft);
+    font-size:12px;font-weight:600;padding:8px;border-radius:9px;cursor:pointer;
+  }
+  .add-variant-btn:hover{border-color:var(--orange-400);color:var(--orange-700);}
   .btn-primary{
     width:100%;background:var(--orange-500);color:#fff;border:none;padding:11px;border-radius:10px;
     font-weight:600;font-size:14px;cursor:pointer;margin-top:6px;transition:background .15s;
@@ -356,9 +406,11 @@ const SUPABASE_ANON_KEY = "sb_publishable_yvm0h0FfAjs0k2Vw-Mu7vg_RizgDd49";
      name text not null,
      tier text not null,
      icon text,
+     image_url text,
      value bigint not null default 0,
      demand text not null default 'med',
      description text,
+     variants jsonb not null default '[]'::jsonb,
      created_at timestamptz default now()
    );
 
@@ -377,11 +429,44 @@ const SUPABASE_ANON_KEY = "sb_publishable_yvm0h0FfAjs0k2Vw-Mu7vg_RizgDd49";
    create policy "Authenticated can delete pets"
      on pets for delete to authenticated using (true);
 
+   -- If you already created the "pets" table before this update, run
+   -- these two lines instead of the create table above:
+   -- alter table pets add column if not exists image_url text;
+   -- alter table pets add column if not exists variants jsonb not null default '[]'::jsonb;
+
    Then: Authentication → Users → Add user, to create yourself an admin
    login (email + password). That's what the Admin button signs in with.
    Also worth turning off "Allow new users to sign up" under
    Authentication → Providers → Email, so no one else can create an account.
+
+   ---------------------------------------------------------------------
+   IMAGE UPLOADS (Storage bucket):
+
+   1. Storage → New bucket → name it exactly:  pet-images
+      Toggle "Public bucket" ON, then Create.
+
+   2. Run this in the SQL editor so only your admin login can upload,
+      but anyone can view the images:
+
+   create policy "Public read pet images"
+     on storage.objects for select
+     using ( bucket_id = 'pet-images' );
+
+   create policy "Authenticated upload pet images"
+     on storage.objects for insert to authenticated
+     with check ( bucket_id = 'pet-images' );
+
+   create policy "Authenticated update pet images"
+     on storage.objects for update to authenticated
+     using ( bucket_id = 'pet-images' );
+
+   create policy "Authenticated delete pet images"
+     on storage.objects for delete to authenticated
+     using ( bucket_id = 'pet-images' );
    ===================================================================== */
+
+const STORAGE_BUCKET = "pet-images";
+
 
 const TIERS = [
   {id:"mythical",  label:"Mythical",  color:"#ff7a00"},
@@ -519,11 +604,15 @@ function renderStats(){
 function petCard(p){
   const demandCls = p.demand === "high" ? "demand-high" : p.demand === "med" ? "demand-med" : "demand-low";
   const demandLbl = p.demand === "high" ? "High Demand" : p.demand === "med" ? "Med Demand" : "Low Demand";
+  const variants = Array.isArray(p.variants) ? p.variants : [];
+  const iconHtml = p.image_url
+    ? `<img src="${escapeHtml(p.image_url)}" alt="${escapeHtml(p.name)}" loading="lazy">`
+    : (p.icon || "🐾");
   return `
     <div class="pet-card tier-${p.tier}">
       <div class="foil"></div>
       <div class="pet-top">
-        <div class="pet-icon">${p.icon || "🐾"}</div>
+        <div class="pet-icon">${iconHtml}</div>
         <span class="tier-badge">${TIERS.find(t=>t.id===p.tier)?.label || p.tier}</span>
       </div>
       <div class="pet-name">${escapeHtml(p.name)}</div>
@@ -532,6 +621,12 @@ function petCard(p){
         <div class="pet-value"><div class="lbl">Value</div><div class="num">${fmtValue(p.value)}</div></div>
         <span class="demand-pill ${demandCls}">${demandLbl}</span>
       </div>
+      ${variants.length ? `
+        <button class="variants-toggle" onclick="this.nextElementSibling.classList.toggle('open')">${variants.length} variant${variants.length===1?"":"s"} ▾</button>
+        <div class="variants-list">
+          ${variants.map(v => `<div class="variant-row"><span class="vname">${escapeHtml(v.name)}</span><span class="vval">${fmtValue(v.value)}</span></div>`).join("")}
+        </div>
+      ` : ""}
       <div class="admin-actions">
         <button class="edit" onclick="openEditModal('${p.id}')">Edit</button>
         <button class="danger" onclick="deletePetClick('${p.id}')">Delete</button>
@@ -644,7 +739,8 @@ function closeModal(id){
 /* ======================= ADMIN: ADD / EDIT / DELETE ======================= */
 function openEditModal(id){
   editingId = id || null;
-  const p = editingId ? pets.find(x => x.id === editingId) : {name:"",tier:TIERS[0].id,value:0,demand:"med",icon:"🐾",description:""};
+  const p = editingId ? pets.find(x => x.id === editingId) : {name:"",tier:TIERS[0].id,value:0,demand:"med",icon:"🐾",description:"",image_url:"",variants:[]};
+  const existingVariants = Array.isArray(p.variants) ? p.variants : [];
   const backdrop = document.createElement("div");
   backdrop.className = "modal-backdrop";
   backdrop.id = "petBackdrop";
@@ -664,13 +760,19 @@ function openEditModal(id){
           </select>
         </div>
         <div class="field">
-          <label>Icon (emoji)</label>
+          <label>Icon (emoji fallback)</label>
           <input type="text" id="fIcon" value="${escapeHtml(p.icon || "")}" placeholder="🐾" maxlength="4">
         </div>
       </div>
+      <div class="field">
+        <label>Image</label>
+        ${p.image_url ? `<img src="${escapeHtml(p.image_url)}" alt="" style="width:100%;height:110px;object-fit:cover;border-radius:9px;margin-bottom:6px;border:1px solid var(--line);">` : ""}
+        <input type="file" id="fImage" accept="image/*">
+        <p style="font-size:11px;color:var(--ink-soft);margin:5px 0 0;">Used instead of the emoji icon when set. Leave empty to keep${p.image_url ? " the current image" : " the emoji"}.</p>
+      </div>
       <div class="modal-row">
         <div class="field">
-          <label>Value</label>
+          <label>Base Value</label>
           <input type="number" id="fValue" value="${p.value}" min="0" placeholder="0">
         </div>
         <div class="field">
@@ -686,12 +788,51 @@ function openEditModal(id){
         <label>Description</label>
         <textarea id="fDesc" placeholder="Why is it worth this much?">${escapeHtml(p.description || "")}</textarea>
       </div>
+      <div class="variants-editor">
+        <label>Variants (optional)</label>
+        <div id="variantRows"></div>
+        <button type="button" class="add-variant-btn" onclick="addVariantRow()">+ Add Variant</button>
+      </div>
       <button class="btn-primary" id="petSubmitBtn" onclick="savePetForm()">${editingId ? "Save Changes" : "Add Pet"}</button>
       <button class="btn-secondary" onclick="closeModal('petBackdrop')">Cancel</button>
     </div>
   `;
   document.body.appendChild(backdrop);
+  existingVariants.forEach(v => addVariantRow(v.name, v.value));
   document.getElementById("fName").focus();
+}
+
+function addVariantRow(name = "", value = ""){
+  const container = document.getElementById("variantRows");
+  if(!container) return;
+  const row = document.createElement("div");
+  row.className = "variant-editor-row";
+  row.innerHTML = `
+    <input type="text" class="vr-name" placeholder="Variant name (e.g. Shiny)" value="${escapeHtml(name)}">
+    <input type="number" class="vr-value" placeholder="Value" min="0" value="${value}">
+    <button type="button" class="vr-remove" onclick="this.parentElement.remove()">✕</button>
+  `;
+  container.appendChild(row);
+}
+
+function collectVariants(){
+  const rows = document.querySelectorAll("#variantRows .variant-editor-row");
+  const out = [];
+  rows.forEach(row => {
+    const name = row.querySelector(".vr-name").value.trim();
+    const value = Math.max(0, parseInt(row.querySelector(".vr-value").value, 10) || 0);
+    if(name) out.push({name, value});
+  });
+  return out;
+}
+
+async function uploadPetImage(petId, file){
+  const ext = (file.name.split(".").pop() || "png").toLowerCase();
+  const path = `${petId}-${Date.now()}.${ext}`;
+  const { error: uploadError } = await supabaseClient.storage.from(STORAGE_BUCKET).upload(path, file, { upsert: true });
+  if(uploadError){ showToast("Image upload failed: " + uploadError.message); return null; }
+  const { data } = supabaseClient.storage.from(STORAGE_BUCKET).getPublicUrl(path);
+  return data ? data.publicUrl : null;
 }
 
 async function savePetForm(){
@@ -701,17 +842,27 @@ async function savePetForm(){
   const value = Math.max(0, parseInt(document.getElementById("fValue").value, 10) || 0);
   const demand = document.getElementById("fDemand").value;
   const description = document.getElementById("fDesc").value.trim();
+  const variants = collectVariants();
+  const imageFile = document.getElementById("fImage").files[0] || null;
 
   if(!name){ showToast("Give the pet a name first"); return; }
 
   const btn = document.getElementById("petSubmitBtn");
   btn.disabled = true; btn.textContent = "Saving...";
 
-  let ok;
+  const payload = {name, tier, icon, value, demand, description, variants};
+
+  let ok, savedId = editingId;
   if(editingId){
-    ok = await updatePet(editingId, {name, tier, icon, value, demand, description});
+    ok = await updatePet(editingId, payload);
   } else {
-    ok = await addPet({name, tier, icon, value, demand, description});
+    ok = await addPet(payload);
+    if(ok) savedId = pets[pets.length - 1].id;
+  }
+
+  if(ok && imageFile && savedId){
+    const url = await uploadPetImage(savedId, imageFile);
+    if(url) await updatePet(savedId, {image_url: url});
   }
 
   btn.disabled = false;
